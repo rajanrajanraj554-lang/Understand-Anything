@@ -1,12 +1,11 @@
 # job-application-automation-py
 
 Python port of `job-application-automation` (the TypeScript/Playwright
-version lives alongside this one at `../job-application-automation`; both
-implement the same tool, this one just uses Playwright's Python API and the
-Anthropic Python SDK). Opens a job posting URL, detects the ATS (Greenhouse,
-Lever, or Ashby), fills in your profile fields and resume, drafts answers to
-open-ended application questions with an LLM, and — only if you explicitly
-ask it to — submits.
+version lives alongside this one at `../job-application-automation`). Opens
+a job posting URL, reads whatever application form is actually there —
+no per-platform CSS selectors — hands its fields to an LLM (Claude or Groq)
+to fill, uploads your resume, and, only if you explicitly ask it to,
+submits.
 
 ## Install
 
@@ -17,8 +16,10 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
-Set `ANTHROPIC_API_KEY` in your environment (or pass it via
-`ApplyOptions.anthropic_api_key` / `QueueOptions.anthropic_api_key`).
+Set an API key for whichever provider you use: `ANTHROPIC_API_KEY` (default,
+`--provider anthropic`) or `GROQ_API_KEY` (`--provider groq`). You can also
+pass the key programmatically via `ApplyOptions.ai_api_key` /
+`QueueOptions.ai_api_key`.
 
 ## Usage
 
@@ -34,6 +35,9 @@ right, re-run with `--submit` added to actually send that one application:
 
 ```bash
 python cli.py "https://boards.greenhouse.io/acme/jobs/123456" profile.json --headed --submit
+
+# or, using Groq instead of Claude:
+python cli.py "https://jobs.lever.co/acme/abc123" profile.json --headed --provider groq --model llama-3.3-70b-versatile
 ```
 
 ## Queue mode (batch review)
@@ -51,9 +55,10 @@ python cli_queue.py urls.txt profile.json
 
 What happens:
 
-1. **Fill pass** — opens a tab per job URL, fills known fields + resume,
-   drafts answers to custom questions, screenshots each, and notes which
-   ones have a CAPTCHA. Nothing blocks here; it just moves to the next job.
+1. **Fill pass** — opens a tab per job URL, uploads your resume, fills
+   whatever fields the AI can confidently answer, screenshots each, and
+   notes which ones have a CAPTCHA. Nothing blocks here; it just moves to
+   the next job.
 2. **Review pass** — goes tab by tab. For each: brings it to front, prints
    the drafted answers, and if that one needs a CAPTCHA, waits (up to
    `--captcha-timeout` seconds, default 300) for you to clear it in that
@@ -66,6 +71,37 @@ What happens:
 Queue mode always runs headed — the whole feature is "a human reviews and
 solves in one sitting," which needs a visible browser.
 
+## How the smart form-filling works (no hardcoded selectors)
+
+There's no `if ats == "greenhouse"` branch and no per-platform CSS
+selectors. Instead, `smart_form.py`:
+
+1. **Scans** whatever the page actually contains (`scan_fields`): every
+   fillable `<input>`/`<textarea>`/`<select>` in DOM order, each described
+   by its label (resolved from `<label for>`, `aria-label`, `placeholder`,
+   or a wrapping/preceding `<label>` — whichever is actually present), its
+   type, and its options if it's a `<select>` or radio group. The field's
+   position in that scan (`index`) *is* its identifier — no CSS selector is
+   ever constructed, so there's nothing to keep in sync with a platform's
+   markup.
+2. **Asks the model** (`ai.fill_form_fields`) to map each field index to a
+   value, given your resume and profile. It's instructed to skip anything
+   it doesn't have enough information for, and to skip legally-sensitive
+   demographic/EEO questions outright so a human answers those.
+3. **Applies** the returned mapping by index (`apply_ai_field_mapping`) —
+   `.fill()` for text, `.select_option(label=...)` for selects, `.check()`
+   for checkboxes — and records every field it touched as an
+   `AnsweredQuestion` so you can review it before submitting.
+
+File uploads are handled separately from the AI mapping, since a model
+can't hand a browser a file path — `upload_resume_and_cover_letter` finds
+`input[type=file]` elements generically and disambiguates resume vs. cover
+letter by label text when there's more than one.
+
+This means the same code path works against Greenhouse, Lever, Ashby, or
+any other ATS's form — `detect_ats.py` is kept only to label results for
+your own reference, nothing branches on it.
+
 ## Design choices you should know about
 
 **Dry run is the default, not an afterthought.** Submitting a job
@@ -73,22 +109,28 @@ application is a real action with a human on the other end reading it — a
 bad AI-drafted answer or a mis-filled field goes out under your name. Review
 before you send.
 
-**This tool does not solve or bypass CAPTCHAs**, and headed (visible
-browser), not headless/"invisible," is the recommended mode. hCaptcha /
-reCAPTCHA / Cloudflare Turnstile are anti-bot controls that Greenhouse,
-Lever, and Ashby (or their customers) put in front of these forms
-specifically to stop scripted submissions, and Greenhouse/Lever/Ashby's
-terms of service generally restrict scripted or bulk submissions. `captcha.py`
-only *detects* a challenge:
+**This tool does not solve, bypass, or evade detection for CAPTCHAs, and it
+does not run in a "stealth"/fingerprint-spoofed/undetectable configuration.**
+hCaptcha / reCAPTCHA / Cloudflare Turnstile are anti-bot controls that
+Greenhouse, Lever, Ashby, or their customers put in front of these forms
+specifically to stop scripted submissions — and their terms of service
+generally restrict scripted or bulk submissions outright. Making the
+automation harder to detect doesn't change what defeating that control
+would be; it's still circumventing a system's access control without the
+operator's consent, just quieter about it. `captcha.py` only *detects* a
+challenge:
 
 - in headed mode it pauses and waits (`wait_for_captcha_clear`) for a human
   to clear it in the visible window, then continues;
 - in headless mode it raises `CaptchaBlockedError` rather than attempting a
   bypass.
 
-If you find yourself wanting headless mode specifically to get past a
-CAPTCHA unattended, that's a sign the target explicitly doesn't want
-automated submissions — respect that rather than routing around it.
+If you find yourself wanting headless/stealth mode specifically to get past
+a CAPTCHA unattended, that's a sign the target explicitly doesn't want
+automated submissions — respect that rather than routing around it. Queue
+mode (above) is the supported way to make manually clearing several
+CAPTCHAs less tedious, by batching the review instead of automating away
+the human step.
 
 **Use this for your own applications, not mass/bulk spam.** It's built for a
 candidate applying to jobs they're genuinely interested in and reviewing
@@ -97,14 +139,15 @@ Employers and other applicants are on the other end of this.
 
 ## How it works
 
-- `detect_ats.py` — identifies Greenhouse / Lever / Ashby from the URL.
-- `forms/{greenhouse,lever,ashby}.py` — fill known fields (name, email,
-  phone, links, resume/cover-letter upload) for each platform.
-- `forms/common.py` — finds labelled fields not covered by the known ones
-  (i.e. custom application questions) and routes them to the AI.
-- `ai.py` — drafts an answer to a custom question from your resume text and
-  `profile.context` / `answer_overrides`, via the Claude API. It's
-  instructed not to invent experience beyond what's in your resume.
+- `detect_ats.py` — identifies Greenhouse / Lever / Ashby from the URL, for
+  labeling results only; nothing branches on it.
+- `smart_form.py` — generic field scanning, AI-mapping application, and
+  resume/cover-letter upload. See above.
+- `ai.py` — provider-agnostic LLM calls (Anthropic or Groq): drafts answers
+  to standalone questions (`answer_question`) and produces the field→value
+  mapping for `smart_form` (`fill_form_fields`). Never invents experience
+  beyond what's in your resume/profile; skips sensitive demographic
+  questions.
 - `captcha.py` — detects (never solves) CAPTCHA challenges; exposes a
   non-blocking `detect_captcha` and a blocking `wait_for_captcha_clear`
   used by both single-apply and queue mode.
@@ -114,15 +157,19 @@ Employers and other applicants are on the other end of this.
   job in a list, then runs one batch review pass (solve CAPTCHA / submit /
   skip per job) across all the open tabs.
 - `resume.py` — extracts text from a PDF (via `pypdf`) or plain-text resume
-  for the AI answerer.
+  for the AI.
 
 ## Known limitations
 
-- Selectors are based on each platform's common DOM structure as of
-  writing; individual job postings can add custom fields, multi-step flows,
-  or platform redesigns that these selectors won't match. Always eyeball
-  the dry-run screenshot.
-- `fill_custom_questions` only handles single-line/textarea text questions,
-  not dropdowns, checkboxes, or multi-select EEO/demographic questions —
-  fill those yourself in the headed browser before submitting.
+- The AI only fills fields it's confident about from your resume/profile;
+  anything it skips (insufficient info, ambiguous label, demographic/EEO
+  questions) is left for you to fill in during the headed review before
+  submitting.
+- Field labels are resolved heuristically (`<label for>` → `aria-label` →
+  `placeholder` → wrapping/preceding `<label>` → field `name`). A form with
+  none of those on a given control will show up with an empty label, which
+  the model will usually just skip.
+- Multi-step application flows (fields revealed after a click) aren't
+  followed automatically — re-run against the same page after advancing a
+  step, or extend `smart_form.py` to loop until no new fields appear.
 - Resume text extraction only handles PDF and plain text.

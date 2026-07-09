@@ -6,33 +6,22 @@ from playwright.sync_api import sync_playwright
 
 from captcha import check_for_captcha
 from detect_ats import detect_ats
-from forms.ashby import fill_ashby_form
-from forms.greenhouse import fill_greenhouse_form
-from forms.lever import fill_lever_form
 from resume import extract_resume_text
+from smart_form import fill_form_smart, upload_resume_and_cover_letter
 from types_ import AnsweredQuestion, ApplicationResult, ApplyOptions
-
-FILLERS = {
-    "greenhouse": fill_greenhouse_form,
-    "lever": fill_lever_form,
-    "ashby": fill_ashby_form,
-}
 
 
 def apply_to_job(options: ApplyOptions) -> ApplicationResult:
-    api_key = options.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
+    api_key = options.ai_api_key or os.environ.get(
+        "GROQ_API_KEY" if options.ai_provider == "groq" else "ANTHROPIC_API_KEY"
+    )
     if not api_key:
         raise RuntimeError(
-            "Missing Anthropic API key. Pass anthropic_api_key or set "
-            "ANTHROPIC_API_KEY."
+            "Missing AI API key. Pass ai_api_key or set ANTHROPIC_API_KEY / "
+            "GROQ_API_KEY depending on ai_provider."
         )
 
-    ats = detect_ats(options.job_url)
-    if ats == "unknown":
-        raise RuntimeError(
-            f"Could not identify an ATS (Greenhouse/Lever/Ashby) from URL: "
-            f"{options.job_url}"
-        )
+    ats = detect_ats(options.job_url)  # informational only; nothing below branches on it
 
     Path(options.output_dir).mkdir(parents=True, exist_ok=True)
     resume_text = extract_resume_text(options.profile.resume_path)
@@ -49,7 +38,16 @@ def apply_to_job(options: ApplyOptions) -> ApplicationResult:
 
             check_for_captcha(page, options.headed)
 
-            FILLERS[ats](page, options.profile, resume_text, api_key, answered_questions)
+            upload_resume_and_cover_letter(page, options.profile)
+            fill_form_smart(
+                page,
+                options.profile,
+                resume_text,
+                api_key,
+                answered_questions,
+                options.ai_provider,
+                options.ai_model,
+            )
 
             # Re-check: some ATS platforms only render the CAPTCHA after
             # fields are filled.

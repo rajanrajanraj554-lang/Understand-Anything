@@ -8,17 +8,9 @@ from playwright.sync_api import Page, sync_playwright
 
 from captcha import CaptchaBlockedError, detect_captcha, wait_for_captcha_clear
 from detect_ats import detect_ats
-from forms.ashby import fill_ashby_form
-from forms.greenhouse import fill_greenhouse_form
-from forms.lever import fill_lever_form
 from resume import extract_resume_text
+from smart_form import fill_form_smart, upload_resume_and_cover_letter
 from types_ import AnsweredQuestion, QueueItemResult, QueueOptions
-
-FILLERS = {
-    "greenhouse": fill_greenhouse_form,
-    "lever": fill_lever_form,
-    "ashby": fill_ashby_form,
-}
 
 
 @dataclass
@@ -39,11 +31,13 @@ def run_queue(options: QueueOptions) -> list[QueueItemResult]:
     each job individually. See README for why this tool never solves a
     CAPTCHA itself.
     """
-    api_key = options.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
+    api_key = options.ai_api_key or os.environ.get(
+        "GROQ_API_KEY" if options.ai_provider == "groq" else "ANTHROPIC_API_KEY"
+    )
     if not api_key:
         raise RuntimeError(
-            "Missing Anthropic API key. Pass anthropic_api_key or set "
-            "ANTHROPIC_API_KEY."
+            "Missing AI API key. Pass ai_api_key or set ANTHROPIC_API_KEY / "
+            "GROQ_API_KEY depending on ai_provider."
         )
     if not options.job_urls:
         return []
@@ -75,28 +69,22 @@ def run_queue(options: QueueOptions) -> list[QueueItemResult]:
 def _fill_one(context, job_url, options, resume_text, api_key) -> _PendingItem:
     answered_questions: list[AnsweredQuestion] = []
     notes: list[str] = []
-    ats = detect_ats(job_url)
-
-    if ats == "unknown":
-        print(f"[skip] {job_url} — unrecognized ATS")
-        return _PendingItem(
-            page=None,
-            result=QueueItemResult(
-                job_url=job_url,
-                ats=ats,
-                status="failed",
-                needed_captcha=False,
-                answered_questions=answered_questions,
-                notes=notes,
-                error="Could not identify an ATS (Greenhouse/Lever/Ashby) from URL.",
-            ),
-        )
+    ats = detect_ats(job_url)  # informational only
 
     page = context.new_page()
     try:
         page.goto(job_url, wait_until="domcontentloaded")
 
-        FILLERS[ats](page, options.profile, resume_text, api_key, answered_questions)
+        upload_resume_and_cover_letter(page, options.profile)
+        fill_form_smart(
+            page,
+            options.profile,
+            resume_text,
+            api_key,
+            answered_questions,
+            options.ai_provider,
+            options.ai_model,
+        )
 
         captcha_kind = detect_captcha(page)
         screenshot_path = str(

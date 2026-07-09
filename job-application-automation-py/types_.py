@@ -1,10 +1,11 @@
 """Shared data types. Named types_ to avoid shadowing the stdlib `types` module."""
 
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 AtsPlatform = Literal["greenhouse", "lever", "ashby", "unknown"]
 QueueItemStatus = Literal["submitted", "skipped", "failed", "captcha-timeout"]
+AiProvider = Literal["anthropic", "groq"]
 
 
 @dataclass
@@ -51,6 +52,21 @@ class AnsweredQuestion:
 
 
 @dataclass
+class FormField:
+    """One fillable control found on the page, in DOM order. `index` is its
+    position in that scan and is how the AI's answer gets mapped back to the
+    actual Playwright locator — no CSS selector guessing involved.
+    """
+
+    index: int
+    label: str
+    tag: str  # "input" | "textarea" | "select"
+    input_type: str  # e.g. "text", "email", "tel", "checkbox", "radio", "" for textarea/select
+    options: list[str] = field(default_factory=list)  # <option> texts, or group values for radio
+    required: bool = False
+
+
+@dataclass
 class ApplyOptions:
     job_url: str
     profile: CandidateProfile
@@ -64,7 +80,9 @@ class ApplyOptions:
     # challenges). See README for why headless/"invisible" mode is
     # deliberately not the default here.
     headed: bool = True
-    anthropic_api_key: Optional[str] = None
+    ai_provider: AiProvider = "anthropic"
+    ai_model: Optional[str] = None
+    ai_api_key: Optional[str] = None
 
 
 @dataclass
@@ -81,7 +99,9 @@ class QueueOptions:
     job_urls: list[str]
     profile: CandidateProfile
     output_dir: str
-    anthropic_api_key: Optional[str] = None
+    ai_provider: AiProvider = "anthropic"
+    ai_model: Optional[str] = None
+    ai_api_key: Optional[str] = None
     # Max seconds to wait for a human to clear a CAPTCHA on any one item
     # during the review pass before giving up on that item and moving on.
     captcha_timeout_seconds: int = 300

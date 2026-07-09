@@ -1,6 +1,8 @@
 """
 Usage:
-    python cli_queue.py <urls.txt> <profile.json> [--out ./out] [--captcha-timeout 300]
+    python cli_queue.py <urls.txt> <profile.json> [--out ./out]
+                         [--captcha-timeout 300] [--provider anthropic|groq]
+                         [--model MODEL]
 
 urls.txt: one job URL per line (blank lines and lines starting with # are
 ignored).
@@ -23,6 +25,8 @@ def main() -> None:
     parser.add_argument("profile_path")
     parser.add_argument("--out", default="./out")
     parser.add_argument("--captcha-timeout", type=int, default=300)
+    parser.add_argument("--provider", choices=["anthropic", "groq"], default="anthropic")
+    parser.add_argument("--model", default=None)
     args = parser.parse_args()
 
     with open(args.urls_path, encoding="utf-8") as f:
@@ -41,6 +45,8 @@ def main() -> None:
             profile=profile,
             output_dir=args.out,
             captcha_timeout_seconds=args.captcha_timeout,
+            ai_provider=args.provider,
+            ai_model=args.model,
         )
     )
 

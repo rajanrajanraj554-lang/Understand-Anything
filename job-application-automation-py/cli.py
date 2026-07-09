@@ -1,6 +1,7 @@
 """
 Usage:
     python cli.py <job_url> <profile.json> [--headed] [--submit] [--out ./out]
+                  [--provider anthropic|groq] [--model MODEL]
 
 profile.json shape: see CandidateProfile in types_.py. Example in
 profile.example.json.
@@ -25,6 +26,8 @@ def main() -> None:
     parser.add_argument("--headed", action="store_true")
     parser.add_argument("--submit", action="store_true")
     parser.add_argument("--out", default="./out")
+    parser.add_argument("--provider", choices=["anthropic", "groq"], default="anthropic")
+    parser.add_argument("--model", default=None)
     args = parser.parse_args()
 
     with open(args.profile_path, encoding="utf-8") as f:
@@ -37,6 +40,8 @@ def main() -> None:
             output_dir=args.out,
             dry_run=not args.submit,
             headed=args.headed,
+            ai_provider=args.provider,
+            ai_model=args.model,
         )
     )
 
