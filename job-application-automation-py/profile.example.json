@@ -1,0 +1,17 @@
+{
+  "fullName": "Jordan Rivera",
+  "firstName": "Jordan",
+  "lastName": "Rivera",
+  "email": "jordan.rivera@example.com",
+  "phone": "+1-555-0100",
+  "location": "Austin, TX",
+  "linkedinUrl": "https://linkedin.com/in/jordanrivera",
+  "portfolioUrl": "https://jordanrivera.dev",
+  "githubUrl": "https://github.com/jordanrivera",
+  "resumePath": "./resume.pdf",
+  "answerOverrides": {
+    "sponsorship": "No, I do not require visa sponsorship.",
+    "salary": "$150,000-$170,000 base, open to discussion based on total comp."
+  },
+  "context": "8 years backend engineering, mostly Go and TypeScript. Led a 4-person team at a Series B startup. Open to remote or hybrid roles."
+}
