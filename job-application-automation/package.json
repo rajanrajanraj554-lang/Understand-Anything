@@ -1,0 +1,21 @@
+{
+  "name": "job-application-automation",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Playwright tool that fills (and optionally submits) job applications on Greenhouse, Lever, and Ashby using a candidate profile and AI-generated answers to open-ended questions.",
+  "type": "module",
+  "scripts": {
+    "apply": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "pdf-parse": "^1.1.1",
+    "playwright": "^1.48.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pdf-parse": "^1.1.5",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
