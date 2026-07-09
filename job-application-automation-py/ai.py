@@ -21,6 +21,10 @@ FORM_SYSTEM_PROMPT = (
     '- text/email/tel/textarea fields: a plain string value.\n'
     '- select/radio fields: pick one value verbatim from that field\'s '
     '"options" list.\n'
+    '- combobox fields (custom dropdowns): if "options" is non-empty, pick '
+    'one verbatim from it; if "options" is empty (the widget only reveals '
+    "choices after typing), give your best short free-text guess — it will "
+    "be typed in and matched against whatever that reveals.\n"
     '- checkbox fields: true or false.\n'
     "Skip (omit from your answer) any field you don't have enough "
     "information to answer confidently, or that looks like a legally "

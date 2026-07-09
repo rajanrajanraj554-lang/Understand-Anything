@@ -7,9 +7,19 @@ from types_ import AiProvider, AnsweredQuestion, CandidateProfile, FormField
 # uploads) or left for the human (submit/hidden/button controls).
 _EXCLUDED_INPUT_TYPES = {"hidden", "file", "submit", "button", "reset", "image"}
 
+# Native form controls, plus the triggers of custom dropdown widgets (React-
+# select-style comboboxes, common on Ashby and other React-based ATS forms)
+# that never render as a real <select>. A comma-separated CSS selector
+# returns matches in DOM order regardless of which part matched, so this
+# still yields one stable, index-ordered list.
 _FILLABLE_SELECTOR = (
     "input:not([type=hidden]):not([type=file]):not([type=submit])"
-    ":not([type=button]):not([type=reset]):not([type=image]), textarea, select"
+    ":not([type=button]):not([type=reset]):not([type=image]), textarea, select, "
+    '[role="combobox"], [aria-haspopup="listbox"]'
+)
+
+_LISTBOX_OPTION_SELECTOR = (
+    '[role="listbox"] [role="option"], [role="listbox"] li, ul[role="listbox"] li'
 )
 
 
@@ -37,6 +47,12 @@ def scan_fields(page: Page, scope: str) -> list[FormField]:
         tag = control.evaluate("el => el.tagName.toLowerCase()")
         input_type = (control.get_attribute("type") or "").lower() if tag == "input" else ""
 
+        role = (control.get_attribute("role") or "").lower()
+        aria_haspopup = (control.get_attribute("aria-haspopup") or "").lower()
+        is_custom_combobox = tag != "select" and (
+            role == "combobox" or aria_haspopup == "listbox"
+        )
+
         label = _label_for(page, control)
         required = control.get_attribute("required") is not None or (
             control.get_attribute("aria-required") or ""
@@ -54,12 +70,20 @@ def scan_fields(page: Page, scope: str) -> list[FormField]:
                     val = group.nth(j).get_attribute("value")
                     if val:
                         options.append(val)
+        elif is_custom_combobox:
+            # Some custom dropdowns only reveal options once opened, and a
+            # few (type-ahead comboboxes) reveal none until you start
+            # typing — this best-effort peek just gives the AI a menu to
+            # choose from when one is available; an empty list here still
+            # gets a value from the AI (a free-text guess), and fill time
+            # falls back to typing it in if nothing matches.
+            options = _peek_combobox_options(page, control)
 
         fields.append(
             FormField(
                 index=i,
                 label=label,
-                tag=tag,
+                tag="combobox" if is_custom_combobox else tag,
                 input_type=input_type,
                 options=options,
                 required=required,
@@ -67,6 +91,22 @@ def scan_fields(page: Page, scope: str) -> list[FormField]:
         )
 
     return fields
+
+
+def _peek_combobox_options(page: Page, control) -> list[str]:
+    try:
+        control.click()
+        page.wait_for_selector(_LISTBOX_OPTION_SELECTOR, timeout=1500, state="visible")
+        options = [
+            o.strip()
+            for o in page.locator(_LISTBOX_OPTION_SELECTOR).all_inner_texts()
+            if o.strip()
+        ]
+    except Exception:
+        options = []
+    finally:
+        page.keyboard.press("Escape")
+    return options
 
 
 def apply_ai_field_mapping(
@@ -86,15 +126,20 @@ def apply_ai_field_mapping(
             continue
 
         control = controls.nth(index)
-        try:
-            existing = control.input_value() if field.tag != "select" else None
-        except Exception:
-            existing = None
-        if existing:
-            continue  # don't clobber something already filled (e.g. pre-populated email)
+
+        if field.tag not in ("select", "combobox"):
+            try:
+                existing = control.input_value()
+            except Exception:
+                existing = None
+            if existing:
+                continue  # don't clobber something already filled (e.g. pre-populated email)
 
         if field.tag == "select":
             control.select_option(label=str(value))
+        elif field.tag == "combobox":
+            if not _select_combobox_option(page, control, str(value)):
+                continue  # couldn't resolve a value; leave it for the human to fill
         elif field.input_type in ("checkbox", "radio"):
             if isinstance(value, str):
                 value = value.strip().lower() in ("true", "yes", "1")
@@ -105,6 +150,67 @@ def apply_ai_field_mapping(
 
         if field.label:
             answered_questions.append(AnsweredQuestion(question=field.label, answer=str(value)))
+
+
+def _select_combobox_option(page: Page, control, target_text: str) -> bool:
+    """Opens a custom dropdown and clicks the option matching `target_text`
+    (exact match first, then substring match either direction). If no
+    option list appears or nothing matches — common for type-ahead
+    comboboxes that filter as you type — types the value in and retries
+    once against whatever options that typing revealed.
+    """
+    target = target_text.strip().lower()
+    if not target:
+        return False
+
+    control.click()
+    try:
+        page.wait_for_selector(_LISTBOX_OPTION_SELECTOR, timeout=1500, state="visible")
+    except Exception:
+        pass
+
+    if _click_matching_option(page, target):
+        return True
+
+    # Type-ahead fallback: type the value to filter the list, then retry.
+    try:
+        control.fill(target_text)
+    except Exception:
+        try:
+            control.type(target_text)
+        except Exception:
+            page.keyboard.press("Escape")
+            return False
+
+    try:
+        page.wait_for_selector(_LISTBOX_OPTION_SELECTOR, timeout=1500, state="visible")
+    except Exception:
+        pass
+
+    if _click_matching_option(page, target):
+        return True
+
+    page.keyboard.press("Escape")
+    return False
+
+
+def _click_matching_option(page: Page, target: str) -> bool:
+    options = page.locator(_LISTBOX_OPTION_SELECTOR)
+    count = options.count()
+
+    for j in range(count):
+        text = (options.nth(j).text_content() or "").strip().lower()
+        if text == target:
+            options.nth(j).click()
+            return True
+
+    for j in range(count):
+        text = (options.nth(j).text_content() or "").strip().lower()
+        if text and (target in text or text in target):
+            options.nth(j).click()
+            return True
+
+    return False
 
 
 def fill_form_smart(
@@ -159,6 +265,18 @@ def _label_for(page: Page, control) -> str:
             text = (label.text_content() or "").strip()
             if text:
                 return text
+
+    labelledby = control.get_attribute("aria-labelledby")
+    if labelledby:
+        texts = []
+        for ref_id in labelledby.split():
+            ref = page.locator(f'[id="{_escape(ref_id)}"]').first
+            if ref.count() > 0:
+                text = (ref.text_content() or "").strip()
+                if text:
+                    texts.append(text)
+        if texts:
+            return " ".join(texts)
 
     aria = control.get_attribute("aria-label")
     if aria:
