@@ -1,0 +1,20 @@
+# 9 real, individual job postings (3 per ATS), found via web search on
+# 2026-07-09. Search-index snapshots can lag reality -- a posting may have
+# closed since it was indexed, so open each link yourself before running a
+# batch against it. None of these have been submitted to; this list is only
+# for exercising the form-filling/dry-run path.
+
+# Greenhouse
+https://boards.greenhouse.io/earnin/jobs/5934502
+https://boards.greenhouse.io/carta/jobs/5809100003
+https://boards.greenhouse.io/appliedintuition/jobs/4296158005
+
+# Lever
+https://jobs.lever.co/aledade/1f5c4e2f-d8f7-4c55-aefb-d4bf300b1e6f
+https://jobs.lever.co/palantir/2da4be12-bc7a-4950-87db-e9d68d955ff7
+https://jobs.lever.co/loopreturns/18e0c554-8850-4e98-b715-d8784a2f7593
+
+# Ashby
+https://jobs.ashbyhq.com/harvey/5ac0eac5-f6cb-4756-8c2e-e10101988287
+https://jobs.ashbyhq.com/applied/c3543196-e23c-4f4b-b460-fca476ffead6
+https://jobs.ashbyhq.com/vanta/09db98db-7eb3-480a-9cee-100520856ab9
