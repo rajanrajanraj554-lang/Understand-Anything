@@ -50,3 +50,32 @@ export interface ApplicationResult {
   answeredQuestions: { question: string; answer: string }[];
   notes: string[];
 }
+
+export interface QueueOptions {
+  jobUrls: string[];
+  profile: CandidateProfile;
+  outputDir: string;
+  anthropicApiKey?: string;
+  /**
+   * Max seconds to wait for a human to clear a CAPTCHA on any one item
+   * during the review pass before giving up on that item and moving on.
+   */
+  captchaTimeoutSeconds?: number;
+}
+
+export type QueueItemStatus =
+  | 'submitted'
+  | 'skipped'
+  | 'failed'
+  | 'captcha-timeout';
+
+export interface QueueItemResult {
+  jobUrl: string;
+  ats: AtsPlatform;
+  status: QueueItemStatus;
+  neededCaptcha: boolean;
+  screenshotPath?: string;
+  answeredQuestions: { question: string; answer: string }[];
+  notes: string[];
+  error?: string;
+}

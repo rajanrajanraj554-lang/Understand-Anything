@@ -32,6 +32,40 @@ right, re-run with `--submit` added to actually send that one application:
 npm run apply -- "https://boards.greenhouse.io/acme/jobs/123456" profile.json --headed --submit
 ```
 
+## Queue mode (batch review)
+
+Applying to several jobs one at a time means babysitting each CAPTCHA as it
+comes up. Queue mode instead fills every job in a list back-to-back, leaves
+anything blocked by a CAPTCHA open in its own tab, and then walks you
+through a single review pass at the end where you solve CAPTCHAs and decide
+submit/skip per application, one after another, in one sitting.
+
+```bash
+cp urls.example.txt urls.txt   # one job URL per line
+cp profile.example.json profile.json
+npm run apply-queue -- urls.txt profile.json
+```
+
+What happens:
+
+1. **Fill pass** — opens a tab per job URL, fills known fields + resume,
+   drafts answers to custom questions, screenshots each, and notes which
+   ones have a CAPTCHA. Nothing blocks here; it just moves to the next job.
+2. **Review pass** — goes tab by tab. For each: brings it to front, prints
+   the drafted answers, and if that one needs a CAPTCHA, waits (up to
+   `--captcha-timeout` seconds, default 300) for you to clear it in that
+   window. Then it asks `Submit this application? [y/N/skip]` before doing
+   anything. A `captcha-timeout` result just means you ran out of time on
+   that one — it's skipped, not submitted.
+3. Prints a summary line per job (`submitted` / `skipped` / `failed` /
+   `captcha-timeout`).
+
+Queue mode always runs headed — the whole feature is "a human reviews and
+solves in one sitting," which needs a visible browser. It still never
+solves a CAPTCHA for you; it only batches the waiting/reviewing so you're
+not interrupted mid-fill for each one. See the design note below for why
+that line matters.
+
 ## Design choices you should know about
 
 **Dry run is the default, not an afterthought.** Submitting a job application
@@ -73,9 +107,14 @@ Employers and other applicants are on the other end of this.
 - `src/ai.ts` — drafts an answer to a custom question from your resume text
   and `profile.context`/`answerOverrides`, via the Claude API. It's
   instructed not to invent experience beyond what's in your resume.
-- `src/captcha.ts` — detects (never solves) CAPTCHA challenges.
-- `src/apply.ts` — orchestrates the above; screenshot + dry-run gate before
+- `src/captcha.ts` — detects (never solves) CAPTCHA challenges; exposes a
+  non-blocking `detectCaptcha` and a blocking `waitForCaptchaClear` used by
+  both single-apply and queue mode.
+- `src/apply.ts` — single-job orchestrator; screenshot + dry-run gate before
   any submit click.
+- `src/queue.ts` / `src/cliQueue.ts` — multi-job orchestrator: fills every
+  job in a list, then runs one batch review pass (solve CAPTCHA / submit /
+  skip per job) across all the open tabs.
 
 ## Known limitations
 
